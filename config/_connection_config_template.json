@@ -1,0 +1,19 @@
+{
+    "mssql": {
+        "host": "localhost",
+        "port": 1433,
+        "user": "your_username",
+        "server": "your_server",
+        "database": "your_database",
+        "schema": "your_schema"
+    },
+    "postgresql": {
+        "host": "localhost",
+        "port": 5432,
+        "user": "your_username",
+        "server": "your_server",
+        "database": "your_database",
+        "schema": "your_schema"
+    }
+        
+}
