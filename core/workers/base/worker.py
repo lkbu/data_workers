@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from core.data_connectors.base.data_connector import DataConnector
+
 class Worker(ABC):
     """
     Abstract base class for workers.
