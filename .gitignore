@@ -1,6 +1,6 @@
 # custom
 .dump/
-test_*.py
+temp_*.py
 *.ipynb
 .data/
 
