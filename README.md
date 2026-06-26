@@ -371,3 +371,26 @@ Why this is better for testing:
     Debugging: You can see the actual files on the VM disk if something goes wrong.
 
 Would you like the systemd configuration file next? (This will make sure your Prefect Worker starts automatically if your Proxmox VM reboots).
+
+# prefect
+
+## remote set up
+
+### on laptop
+
+By default, your laptop's CLI tries to look at a local server. You need to redirect its "aim" to your Ubuntu VM's IP address.
+
+- Windows (PowerShell)
+```bash
+$env:PREFECT_API_URL="http://192.168.1.50:4200/api"
+
+- Mac/Linux/Git Bash
+```bash
+export PREFECT_API_URL="http://192.168.1.50:4200/api"
+
+To confirm your laptop is successfully talking through the network to your Proxmox Docker container, check your active profile configurations:
+
+```bash
+prefect config view
+
+Look for PREFECT_API_URL matching your VM's IP. You can also run prefect work-pool ls to see your proxmox-process-pool show up directly on your laptop's terminal!
