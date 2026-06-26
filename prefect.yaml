@@ -1,0 +1,23 @@
+name: dummy-telegram
+prefect-version: 3.x
+
+deployments:
+- name: "dummy-telegram"
+  entrypoint: "core/workers/dummy_telegram.py:dummy_telegram" # Your root file and flow function
+  work_pool:
+    name: "prefect-worker" # Must match your systemd worker's pool
+  
+  # Crucial configuration for local process execution:
+  job_variables:
+    working_dir: "/opt/prefect/data_workers"
+    env:
+      PYTHONPATH: "/opt/prefect/data_workers"
+  
+  # Define your default parameters here (e.g. for fetch_data)
+  parameters:
+    target_date: null # If null, our script defaults to today/yesterday
+  
+  # Schedule it to run daily at 7:00 AM (07:00)
+  schedule:
+    cron: "0 7 * * *"
+    timezone: "Europe/Warsaw"
