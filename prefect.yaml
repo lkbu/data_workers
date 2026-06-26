@@ -1,12 +1,22 @@
 name: dummy-telegram
 prefect-version: 3.x
 
+# --- FORCE THIS TO BE BLANK ---
+# This stops Windows from injecting "D:\dev" into the deployment steps
+# Force all automatic path discovery to turn off
+build: []
+push: []
+pull: []
+
 deployments:
 - name: "dummy-telegram"
   entrypoint: "core/workers/dummy_telegram.py:my_docker_flow" # Your root file and flow function
   work_pool:
-    name: "prefect-worker" # Must match your systemd worker's pool
+    name: "proxmox-process-pool" # Must match your systemd worker's pool
   
+  # 2. FORCE the path to match your VM's project folder explicitly
+  path: "/opt/prefect/data_workers"
+
   # Crucial configuration for local process execution:
   job_variables:
     working_dir: "/opt/prefect/data_workers"
