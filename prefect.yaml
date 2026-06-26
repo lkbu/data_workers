@@ -3,7 +3,7 @@ prefect-version: 3.x
 
 deployments:
 - name: "dummy-telegram"
-  entrypoint: "core/workers/dummy_telegram.py:dummy_telegram" # Your root file and flow function
+  entrypoint: "core/workers/dummy_telegram.py:my_docker_flow" # Your root file and flow function
   work_pool:
     name: "prefect-worker" # Must match your systemd worker's pool
   
