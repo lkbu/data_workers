@@ -17,4 +17,5 @@ dependencies = [
     "ruff>=0.15.8",
     "sqlalchemy>=2.0.48",
     "ty>=0.0.26",
+    "uvicorn>=0.42.0",
 ]
