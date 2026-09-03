@@ -6,27 +6,20 @@ import json
 import logging
 import urllib.request
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import engine, text
 
-from core.sql.sql_reader import read_sql_script
-
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# sql_content = read_sql_script(
-#     Path(__file__).parent.parent / "sql" / "available_data.sql"
-# )
 
 sql_content = """select max(ot.eod_date) max_date, d.ts_shortname, d.ts_name, d.ts_source
 	from mdh.other_ts ot
 	left join mdh.ts_dict d
 	on ot.ts_id = d.ts_id and ts_source = :ts_source
 	where d.ts_shortname is not null
-	group by d.ts_shortname, d.ts_name, d.ts_source;"""
+	group by d.ts_shortname, d.ts_name, d.ts_source"""
 
 
 def upload_fixed_base_rate(
@@ -63,9 +56,7 @@ def upload_fixed_base_rate(
     if isinstance(end_period, str):
         end_period = date.fromisoformat(end_period)
 
-    df_dict = pd.read_sql(
-        text(sql_content), db_engine, params={"ts_source": "Fixed_base_rate"}
-    )
+    df_dict = pd.read_sql(text(sql_content), db_engine)
     step_days = 120
 
     max_date = (
