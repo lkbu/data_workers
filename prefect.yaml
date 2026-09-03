@@ -1,4 +1,4 @@
-name: dummy-telegram
+name: data-workers
 prefect-version: 3.x
 
 # --- FORCE THIS TO BE BLANK ---
@@ -26,4 +26,43 @@ deployments:
   # Schedule it to run daily at 7:00 AM (07:00)
   schedule:
     cron: "0 7 * * *"
+    timezone: "Europe/Warsaw"
+
+- name: "fx-nbp"
+  entrypoint: "core/workers/fx_flow.py:fx_nbp_flow"
+  work_pool:
+    name: "proxmox-process-pool"
+  path: "/opt/prefect/data_workers"
+  job_variables:
+    working_dir: "/opt/prefect/data_workers"
+    env:
+      PYTHONPATH: "/opt/prefect/data_workers"
+  schedule:
+    cron: "15 7 * * *"
+    timezone: "Europe/Warsaw"
+
+- name: "fx-ecb"
+  entrypoint: "core/workers/fx_flow.py:fx_ecb_flow"
+  work_pool:
+    name: "proxmox-process-pool"
+  path: "/opt/prefect/data_workers"
+  job_variables:
+    working_dir: "/opt/prefect/data_workers"
+    env:
+      PYTHONPATH: "/opt/prefect/data_workers"
+  schedule:
+    cron: "30 7 * * *"
+    timezone: "Europe/Warsaw"
+
+- name: "pko-fixed-base-rate"
+  entrypoint: "core/workers/pko_flow.py:pko_fixed_base_rate_flow"
+  work_pool:
+    name: "proxmox-process-pool"
+  path: "/opt/prefect/data_workers"
+  job_variables:
+    working_dir: "/opt/prefect/data_workers"
+    env:
+      PYTHONPATH: "/opt/prefect/data_workers"
+  schedule:
+    cron: "45 7 * * *"
     timezone: "Europe/Warsaw"
