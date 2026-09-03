@@ -45,9 +45,9 @@ def _format_telegram_message(source: str, result: dict) -> str:
 
 
 @task
-def notify_telegram_task(msg: str):
+def notify_telegram_task(msg: str) -> bool:
     """Prefect task wrapper for sending Telegram messages."""
-    send_telegram_notification(msg)
+    return send_telegram_notification(msg)
 
 
 @flow(name="fx-data-flow")
@@ -72,7 +72,8 @@ def fx_data_flow(
             end_period=end_period,
         )
         msg = _format_telegram_message(source, result)
-        notify_telegram_task(msg)
+        success = notify_telegram_task(msg)
+        result["telegram_sent"] = success
         return result
     except Exception as e:
         error_msg = f"🚨 <b>[FX Scraper - {source}]</b>\nFlow encountered an unexpected error:\n<code>{e}</code>"

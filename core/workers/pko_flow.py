@@ -1,4 +1,5 @@
 import logging
+
 from prefect import flow, task
 
 from core.data_hub.connection_manager import connection_manager
@@ -44,9 +45,9 @@ def _format_telegram_message(result: dict) -> str:
 
 
 @task
-def notify_telegram_task(msg: str):
+def notify_telegram_task(msg: str) -> bool:
     """Prefect task wrapper for sending Telegram messages."""
-    send_telegram_notification(msg)
+    return send_telegram_notification(msg)
 
 
 @flow(name="pko-fixed-base-rate-flow")
