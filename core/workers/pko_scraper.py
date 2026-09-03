@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 sql_content = """select max(ot.eod_date) max_date, d.ts_shortname, d.ts_name, d.ts_source
 	from mdh.other_ts ot
 	left join mdh.ts_dict d
-	on ot.ts_id = d.ts_id and ts_source = :ts_source
+	on ot.ts_id = d.ts_id
 	where d.ts_shortname is not null
 	group by d.ts_shortname, d.ts_name, d.ts_source"""
 
