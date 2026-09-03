@@ -22,24 +22,30 @@ sql_content = read_sql_script(
 
 def upload_fx_data(
     source: str,
-    engine: engine.base.Engine | None = None,
+    db_engine: engine.base.Engine | None = None,
     db_params: dict | None = None,
     start_period: date | str | None = None,
     end_period: date | str | None = None,
+    engine: engine.base.Engine | None = None,
 ) -> dict:
     """
     Uploads FX data from a specified source to the database.
 
     :param source: Data source, either "ECB" or "NBP".
-    :param engine: SQLAlchemy engine instance. Defaults to connection_manager.postgres_engine if None.
+    :param db_engine: SQLAlchemy engine instance. Defaults to connection_manager.postgres_engine if None.
     :param db_params: Dictionary containing database table name and schema.
     :param start_period: Start date for fetching data.
     :param end_period: End date for fetching data.
+    :param engine: Legacy alias for db_engine.
     :return: Dictionary containing source, status, uploaded_dates, failed_dates, and message.
     """
-    if engine is None:
+    if db_engine is None:
+        db_engine = engine
+
+    if db_engine is None:
         from core.data_hub.connection_manager import connection_manager
-        engine = connection_manager.postgres_engine
+
+        db_engine = connection_manager.postgres_engine
 
     if db_params is None:
         db_params = {"name": "fx_ts", "schema": "mdh"}
@@ -53,10 +59,10 @@ def upload_fx_data(
     if isinstance(end_period, str):
         end_period = date.fromisoformat(end_period)
 
-    df_dict = pd.read_sql(text(sql_content), engine, params={"ts_source": source})
+    df_dict = pd.read_sql(text(sql_content), db_engine, params={"ts_source": source})
     df_map = pd.read_sql(
         text("select * from mdh.ts_dict where ts_source=:ts_source"),
-        engine,
+        db_engine,
         params={"ts_source": source},
     )
 
@@ -122,7 +128,7 @@ def upload_fx_data(
                 fx_data = fx_data[["eod_date", "ts_id", "ts_tenor", "rate"]]
                 fx_data.to_sql(
                     name=db_params["name"],
-                    con=engine,
+                    con=db_engine,
                     schema=db_params["schema"],
                     if_exists="append",
                     index=False,

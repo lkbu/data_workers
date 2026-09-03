@@ -1,6 +1,7 @@
 import logging
 from prefect import flow, task
 
+from core.data_hub.connection_manager import connection_manager
 from core.util.telegram import send_telegram_notification
 from core.workers.fx_scraper import upload_fx_data
 
@@ -63,8 +64,10 @@ def fx_data_flow(
     logger.info(f"Starting FX data flow for source: {source}")
 
     try:
+        db_engine = connection_manager.postgres_engine
         result = upload_fx_data(
             source=source,
+            db_engine=db_engine,
             start_period=start_period,
             end_period=end_period,
         )

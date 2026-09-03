@@ -6,12 +6,10 @@ import json
 import logging
 import urllib.request
 from datetime import date, datetime, timedelta
-from importlib import resources
 from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import engine, text
-from sqlalchemy.engine import Engine
 
 from core.sql.sql_reader import read_sql_script
 
@@ -32,24 +30,30 @@ sql_content = """select max(ot.eod_date) max_date, d.ts_shortname, d.ts_name, d.
 
 
 def upload_fixed_base_rate(
-    engine: Engine | None = None,
+    db_engine: engine.base.Engine | None = None,
     db_params: dict | None = None,
     start_period: date | str | None = None,
     end_period: date | str | None = None,
+    engine: engine.base.Engine | None = None,
 ) -> dict:
     """
     Scrapes the 5-year fixed base rate from PKO BP and uploads it to the database.
 
-    :param engine: SQLAlchemy engine instance. Defaults to connection_manager.postgres_engine if None.
+    :param db_engine: SQLAlchemy engine instance. Defaults to connection_manager.postgres_engine if None.
     :param db_params: Dictionary containing database table name and schema.
     :param start_period: Start date for the scraping period.
     :param end_period: End date for the scraping period.
+    :param engine: Legacy alias for db_engine.
     :return: Dictionary containing status, uploaded_dates, failed_dates, and message.
     """
 
-    if engine is None:
+    if db_engine is None:
+        db_engine = engine
+
+    if db_engine is None:
         from core.data_hub.connection_manager import connection_manager
-        engine = connection_manager.postgres_engine
+
+        db_engine = connection_manager.postgres_engine
 
     if db_params is None:
         db_params = {"name": "other_ts", "schema": "mdh"}
@@ -60,10 +64,7 @@ def upload_fixed_base_rate(
         end_period = date.fromisoformat(end_period)
 
     df_dict = pd.read_sql(
-        text(sql_content), engine, params={"ts_source": "Fixed_base_rate"}
-    )
-    df_map = pd.read_sql(
-        text("select * from mdh.ts_dict where ts_source='Fixed_base_rate'"), engine
+        text(sql_content), db_engine, params={"ts_source": "Fixed_base_rate"}
     )
     step_days = 120
 
@@ -146,7 +147,7 @@ def upload_fixed_base_rate(
 
     pko_data.to_sql(
         name=db_params["name"],
-        con=engine,
+        con=db_engine,
         schema=db_params["schema"],
         if_exists="append",
         index=False,
@@ -160,7 +161,9 @@ def upload_fixed_base_rate(
     }
 
 
-def get_5_year_fixed_base_rate(target_date_str="2026-03-31", raise_on_error: bool = False):
+def get_5_year_fixed_base_rate(
+    target_date_str="2026-03-31", raise_on_error: bool = False
+):
     """
     Fetches the 5-year fixed base rate for a specific date from PKO BP API.
 
@@ -205,7 +208,9 @@ def get_5_year_fixed_base_rate(target_date_str="2026-03-31", raise_on_error: boo
             else:
                 logger.error(f"Failed to fetch data. HTTP Status: {response.status}")
                 if raise_on_error:
-                    raise RuntimeError(f"HTTP Status {response.status} fetching {api_url}")
+                    raise RuntimeError(
+                        f"HTTP Status {response.status} fetching {api_url}"
+                    )
                 return None, None
     except Exception as e:
         logger.error(f"Error fetching data from {api_url}: {e}")

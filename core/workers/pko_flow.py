@@ -1,6 +1,7 @@
 import logging
 from prefect import flow, task
 
+from core.data_hub.connection_manager import connection_manager
 from core.util.telegram import send_telegram_notification
 from core.workers.pko_scraper import upload_fixed_base_rate
 
@@ -60,7 +61,9 @@ def pko_fixed_base_rate_flow(
     logger.info("Starting PKO BP fixed base rate flow...")
 
     try:
+        db_engine = connection_manager.postgres_engine
         result = upload_fixed_base_rate(
+            db_engine=db_engine,
             start_period=start_period,
             end_period=end_period,
         )
