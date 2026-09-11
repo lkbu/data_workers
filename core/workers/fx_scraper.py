@@ -22,20 +22,31 @@ sql_content = read_sql_script(
 
 def upload_fx_data(
     source: str,
-    engine: engine.base.Engine,
+    db_engine: engine.base.Engine | None = None,
     db_params: dict | None = None,
-    start_period: date | None = None,
-    end_period: date | None = None,
-):
+    start_period: date | str | None = None,
+    end_period: date | str | None = None,
+    engine: engine.base.Engine | None = None,
+) -> dict:
     """
     Uploads FX data from a specified source to the database.
 
     :param source: Data source, either "ECB" or "NBP".
-    :param engine: SQLAlchemy engine instance.
+    :param db_engine: SQLAlchemy engine instance. Defaults to connection_manager.postgres_engine if None.
     :param db_params: Dictionary containing database table name and schema.
     :param start_period: Start date for fetching data.
     :param end_period: End date for fetching data.
+    :param engine: Legacy alias for db_engine.
+    :return: Dictionary containing source, status, uploaded_dates, failed_dates, and message.
     """
+    if db_engine is None:
+        db_engine = engine
+
+    if db_engine is None:
+        from core.data_hub.connection_manager import connection_manager
+
+        db_engine = connection_manager.postgres_engine
+
     if db_params is None:
         db_params = {"name": "fx_ts", "schema": "mdh"}
 
@@ -43,53 +54,129 @@ def upload_fx_data(
     if source not in ["ECB", "NBP"]:
         raise ValueError("Source must be 'ECB' or 'NBP'")
 
-    df_dict = pd.read_sql(text(sql_content), engine, params={"ts_source": source})
-    df_map = pd.read_sql(text("select * from mdh.ts_dict where ts_source=:ts_source"), engine, params={"ts_source": source})
+    if isinstance(start_period, str):
+        start_period = date.fromisoformat(start_period)
+    if isinstance(end_period, str):
+        end_period = date.fromisoformat(end_period)
+
+    df_dict = pd.read_sql(text(sql_content), db_engine, params={"ts_source": source})
+    df_map = pd.read_sql(
+        text("select * from mdh.ts_dict where ts_source=:ts_source"),
+        db_engine,
+        params={"ts_source": source},
+    )
 
     step_days = 89 if source == "ECB" else 80
 
-    end_period = min(
-        end_period or (df_dict.max_date.max() + timedelta(days=step_days)), date.today()
+    max_date = (
+        start_period
+        if df_dict.empty or pd.isna(df_dict.max_date.max())
+        else df_dict.max_date.max()
     )
-    start_period = start_period or (df_dict.max_date.max() + timedelta(days=1))
+    if hasattr(max_date, "date") and not isinstance(max_date, date):
+        max_date = max_date.date()
+    elif isinstance(max_date, str):
+        max_date = date.fromisoformat(max_date)
+
+    if max_date is None:
+        raise ValueError(
+            f"start_period must be provided when no existing data for {source} is found in database."
+        )
+
+    end_period = min(
+        end_period or (max_date + timedelta(days=step_days)), date.today()
+    )
+    start_period = start_period or (max_date + timedelta(days=1))
     if source == "ECB":
         start_period = min(start_period, end_period)
 
-    while start_period < date.today():
-        if source == "ECB":
-            fx_data = get_ecb_fx_rates(start_period=start_period, end_period=end_period)
-        else:
-            fx_data = get_nbp_fx_rates(start_period=start_period, end_period=end_period)
+    if start_period >= date.today():
+        logger.info(f"Database is already up to date for {source}. Nothing to upload.")
+        return {
+            "source": source,
+            "status": "no_update",
+            "uploaded_dates": [],
+            "failed_dates": [],
+            "message": f"Database is already up to date for {source} (latest date: {max_date}).",
+        }
 
-        if not fx_data.empty:
+    uploaded_dates = []
+    failed_dates = []
+
+    while start_period < date.today():
+        chunk_desc = f"{start_period} to {end_period}"
+        try:
             if source == "ECB":
-                fx_data["ts_shortname"] = "EUR" + fx_data["ccy"]
+                fx_data = get_ecb_fx_rates(
+                    start_period=start_period, end_period=end_period, raise_on_error=True
+                )
             else:
-                fx_data["ts_shortname"] = fx_data["ccy"] + "PLN"
-            fx_data["ts_tenor"] = 0
-            fx_data.columns = [col.lower() for col in fx_data.columns]
-            fx_data["ts_id"] = fx_data["ts_shortname"].map(
-                df_map.set_index("ts_shortname")["ts_id"]
+                fx_data = get_nbp_fx_rates(
+                    start_period=start_period, end_period=end_period, raise_on_error=True
+                )
+
+            if not fx_data.empty:
+                if source == "ECB":
+                    fx_data["ts_shortname"] = "EUR" + fx_data["ccy"]
+                else:
+                    fx_data["ts_shortname"] = fx_data["ccy"] + "PLN"
+                fx_data["ts_tenor"] = 0
+                fx_data.columns = [col.lower() for col in fx_data.columns]
+                fx_data["ts_id"] = fx_data["ts_shortname"].map(
+                    df_map.set_index("ts_shortname")["ts_id"]
+                )
+                fx_data = fx_data[["eod_date", "ts_id", "ts_tenor", "rate"]]
+                fx_data.to_sql(
+                    name=db_params["name"],
+                    con=db_engine,
+                    schema=db_params["schema"],
+                    if_exists="append",
+                    index=False,
+                )
+                chunk_dates = sorted(fx_data["eod_date"].dropna().unique())
+                for d in chunk_dates:
+                    d_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)
+                    if d_str not in uploaded_dates:
+                        uploaded_dates.append(d_str)
+        except Exception as e:
+            logger.error(
+                f"Error fetching/uploading FX data for {source} ({chunk_desc}): {e}"
             )
-            fx_data = fx_data[["eod_date", "ts_id", "ts_tenor", "rate"]]
-            fx_data.to_sql(
-                name=db_params["name"],
-                con=engine,
-                schema=db_params["schema"],
-                if_exists="append",
-                index=False,
-            )
-            
+            failed_dates.append(chunk_desc)
+
         if source == "ECB":
             end_period = end_period + timedelta(days=step_days)
         else:
             end_period = min(end_period + timedelta(days=step_days), date.today())
-            
+
         start_period = start_period + timedelta(days=step_days)
+
+    status = (
+        "success" if uploaded_dates else ("failed" if failed_dates else "no_update")
+    )
+    message = (
+        f"Successfully uploaded {len(uploaded_dates)} date(s) for {source}."
+        if uploaded_dates
+        else (
+            "Failed to upload data for specified periods."
+            if failed_dates
+            else f"No new FX data published for {source}."
+        )
+    )
+
+    return {
+        "source": source,
+        "status": status,
+        "uploaded_dates": uploaded_dates,
+        "failed_dates": failed_dates,
+        "message": message,
+    }
 
 
 def get_nbp_fx_rates(
-    start_period: date | None = None, end_period: date | None = None
+    start_period: date | None = None,
+    end_period: date | None = None,
+    raise_on_error: bool = False,
 ) -> pd.DataFrame:
     """
     Calls the NBP API to get daily fx rates for all currencies against PLN.
@@ -109,6 +196,8 @@ def get_nbp_fx_rates(
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching data from NBP API: {e}")
+        if raise_on_error:
+            raise
         return pd.DataFrame()
 
     try:
@@ -146,11 +235,15 @@ def get_nbp_fx_rates(
 
     except Exception as e:
         logger.error(f"Failed to parse NBP XML data: {e}")
+        if raise_on_error:
+            raise
         return pd.DataFrame()
 
 
 def get_ecb_fx_rates(
-    start_period: date | None = None, end_period: date | None = None
+    start_period: date | None = None,
+    end_period: date | None = None,
+    raise_on_error: bool = False,
 ) -> pd.DataFrame:
     """
     Calls the ECB API to get daily fx rates for all currencies against EUR.
@@ -168,6 +261,8 @@ def get_ecb_fx_rates(
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching data from ECB API: {e}")
+        if raise_on_error:
+            raise
         return pd.DataFrame()
 
     try:
@@ -206,6 +301,8 @@ def get_ecb_fx_rates(
 
     except Exception as e:
         logger.error(f"Failed to parse ECB XML data: {e}")
+        if raise_on_error:
+            raise
         return pd.DataFrame()
 
 

@@ -1,107 +1,165 @@
 """
 Module for scraping interest rate data from PKO BP website, including fixed base rates and WIBOR/WIBID rates.
 """
-from importlib import resources
-from datetime import date, timedelta, datetime
-from core.sql.sql_reader import read_sql_script
+
 import json
-import urllib.request
-import pandas as pd
-from sqlalchemy.engine import Engine
-from sqlalchemy import text
 import logging
-from pathlib import Path
+import urllib.request
+from datetime import date, datetime, timedelta
+
+import pandas as pd
+from sqlalchemy import engine, text
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-sql_content = read_sql_script(
-    Path(__file__).parent.parent / "sql" / "available_data.sql"
-)
+sql_content = """select max(ot.eod_date) max_date, d.ts_shortname, d.ts_name, d.ts_source
+	from mdh.other_ts ot
+	left join mdh.ts_dict d
+	on ot.ts_id = d.ts_id
+	where d.ts_shortname is not null
+	group by d.ts_shortname, d.ts_name, d.ts_source"""
 
 
 def upload_fixed_base_rate(
-    engine: Engine,
+    db_engine: engine.base.Engine | None = None,
     db_params: dict | None = None,
-    start_period: date | None = None,
-    end_period: date | None = None,
-):
+    start_period: date | str | None = None,
+    end_period: date | str | None = None,
+    engine: engine.base.Engine | None = None,
+) -> dict:
     """
     Scrapes the 5-year fixed base rate from PKO BP and uploads it to the database.
 
-    :param engine: SQLAlchemy engine instance.
+    :param db_engine: SQLAlchemy engine instance. Defaults to connection_manager.postgres_engine if None.
     :param db_params: Dictionary containing database table name and schema.
     :param start_period: Start date for the scraping period.
     :param end_period: End date for the scraping period.
+    :param engine: Legacy alias for db_engine.
+    :return: Dictionary containing status, uploaded_dates, failed_dates, and message.
     """
 
+    if db_engine is None:
+        db_engine = engine
+
+    if db_engine is None:
+        from core.data_hub.connection_manager import connection_manager
+
+        db_engine = connection_manager.postgres_engine
+
     if db_params is None:
-        db_params = {"name": "fx_ts", "schema": "mdh"}
+        db_params = {"name": "other_ts", "schema": "mdh"}
 
-    df_dict = pd.read_sql(
-        text(sql_content), engine, params={"ts_source": "Fixed_base_rate"}
-    )
-    df_map = pd.read_sql(
-        text("select * from mdh.ts_dict where ts_source='Fixed_base_rate'"), engine
-    )
-    step_days = 30
+    if isinstance(start_period, str):
+        start_period = date.fromisoformat(start_period)
+    if isinstance(end_period, str):
+        end_period = date.fromisoformat(end_period)
 
-    end_period = min(
-        end_period or (df_dict.max_date.max() + timedelta(days=step_days)), date.today()
+    df_dict = pd.read_sql(text(sql_content), db_engine)
+    step_days = 120
+
+    max_date = (
+        start_period
+        if df_dict.empty or pd.isna(df_dict.max_date.max())
+        else df_dict.max_date.max()
     )
-    start_period = start_period or (df_dict.max_date.max() + timedelta(days=1))
+    if hasattr(max_date, "date") and not isinstance(max_date, date):
+        max_date = max_date.date()
+    elif isinstance(max_date, str):
+        max_date = date.fromisoformat(max_date)
+
+    if max_date is None:
+        raise ValueError(
+            "start_period must be provided when no existing data is found in the database."
+        )
+
+    end_period = min(end_period or (max_date + timedelta(days=step_days)), date.today())
+    start_period = start_period or (max_date + timedelta(days=1))
+
+    if start_period > end_period:
+        logger.info("Database is already up to date. Nothing to upload.")
+        return {
+            "status": "no_update",
+            "uploaded_dates": [],
+            "failed_dates": [],
+            "message": f"Database is already up to date (latest date: {max_date}).",
+        }
 
     rows = []
+    uploaded_dates = []
+    failed_dates = []
     current_date = start_period
 
     while current_date <= end_period:
+        date_iso = current_date.strftime("%Y-%m-%d")
         try:
             date_str, rate = get_5_year_fixed_base_rate(
-                target_date_str=current_date.strftime("%Y-%m-%d")
+                target_date_str=date_iso, raise_on_error=True
             )
             if date_str and rate is not None:
                 rows.append(
                     {
                         "eod_date": date_str,
-                        "ts_shortname": "Fixed_base_rate",
+                        "ts_id": 9001,
                         "rate": rate,
                     }
                 )
+                uploaded_dates.append(date_str)
         except Exception as e:
-            logger.error(f"Error fetching data for date {current_date}: {e}")
+            logger.error(f"Error fetching data for date {date_iso}: {e}")
+            failed_dates.append(date_iso)
+            current_date += timedelta(days=1)
             continue
 
         current_date += timedelta(days=1)
 
     if not rows:
+        if failed_dates:
+            logger.warning(f"No data uploaded. Failed dates: {failed_dates}")
+            return {
+                "status": "failed",
+                "uploaded_dates": [],
+                "failed_dates": failed_dates,
+                "message": f"No data uploaded. Failed dates: {', '.join(failed_dates)}",
+            }
         logger.warning("No new data found to upload.")
-        return
+        return {
+            "status": "no_update",
+            "uploaded_dates": [],
+            "failed_dates": [],
+            "message": "No new fixed base rate data published for the period.",
+        }
 
     pko_data = pd.DataFrame(rows)
-
-    # Map ts_id
-    pko_data["ts_id"] = pko_data["ts_shortname"].map(
-        df_map.set_index("ts_shortname")["ts_id"]
-    )
 
     # Final selection and upload
     pko_data = pko_data[["eod_date", "ts_id", "rate"]]
 
     pko_data.to_sql(
         name=db_params["name"],
-        con=engine,
+        con=db_engine,
         schema=db_params["schema"],
         if_exists="append",
         index=False,
     )
 
+    return {
+        "status": "success",
+        "uploaded_dates": uploaded_dates,
+        "failed_dates": failed_dates,
+        "message": f"Successfully uploaded {len(uploaded_dates)} date(s).",
+    }
 
-def get_5_year_fixed_base_rate(target_date_str="2026-03-31"):
+
+def get_5_year_fixed_base_rate(
+    target_date_str="2026-03-31", raise_on_error: bool = False
+):
     """
     Fetches the 5-year fixed base rate for a specific date from PKO BP API.
 
     :param target_date_str: Date in 'YYYY-MM-DD' format.
+    :param raise_on_error: If True, raises network and HTTP exceptions instead of returning None.
     :return: Tuple of (formatted_date_str, decimal_rate) or (None, None) if not found.
     """
     # Target date format expected by API
@@ -123,28 +181,32 @@ def get_5_year_fixed_base_rate(target_date_str="2026-03-31"):
                 data = json.loads(response.read().decode("utf-8"))
 
                 # The data structure contains "base" for the 5-year fixed base rate
-                base_data = data.get("base", {})
+                base_data = data.get("base", {}) if isinstance(data, dict) else {}
 
                 date_str = base_data.get("date")
                 value = base_data.get("value")
 
                 if date_str and value is not None:
-                    # Convert 'YYYY-MM-DD' to 'DD.MM.YYYY' as requested
-                    parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
-                    formatted_date = parsed_date.strftime("%d.%m.%Y")
-
                     # Convert percentage to decimal (4.9 -> 0.049)
                     decimal_value = value / 100.0
 
-                    return formatted_date, decimal_value
+                    return date_str, decimal_value
                 else:
-                    logger.warning(f"Data not found in response for date {target_date_str}.")
+                    logger.info(
+                        f"No fixed base rate published for date {target_date_str}."
+                    )
                     return None, None
             else:
                 logger.error(f"Failed to fetch data. HTTP Status: {response.status}")
+                if raise_on_error:
+                    raise RuntimeError(
+                        f"HTTP Status {response.status} fetching {api_url}"
+                    )
                 return None, None
     except Exception as e:
         logger.error(f"Error fetching data from {api_url}: {e}")
+        if raise_on_error:
+            raise
         return None, None
 
 
@@ -192,7 +254,9 @@ def get_wibor_wibid_rates(target_date_str="2026-03-31"):
 
                 return dropdown_date, df_wibid, df_wibor
             else:
-                logger.error(f"Failed to fetch WIBOR/WIBID. HTTP Status: {response.status}")
+                logger.error(
+                    f"Failed to fetch WIBOR/WIBID. HTTP Status: {response.status}"
+                )
                 return None, None, None
     except Exception as e:
         logger.error(f"Error fetching WIBOR/WIBID from {api_url}: {e}")
