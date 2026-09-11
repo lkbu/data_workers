@@ -382,15 +382,22 @@ By default, your laptop's CLI tries to look at a local server. You need to redir
 
 - Windows (PowerShell)
 ```bash
-$env:PREFECT_API_URL="http://192.168.1.50:4200/api"
+$env:PREFECT_API_URL="http://192.168.1.235:4200/api"
+```
 
 - Mac/Linux/Git Bash
 ```bash
-export PREFECT_API_URL="http://192.168.1.50:4200/api"
+export PREFECT_API_URL="http://192.168.0.235:4200/api"
+```222
 
 To confirm your laptop is successfully talking through the network to your Proxmox Docker container, check your active profile configurations:
 
 ```bash
 prefect config view
+```
 
 Look for PREFECT_API_URL matching your VM's IP. You can also run prefect work-pool ls to see your proxmox-process-pool show up directly on your laptop's terminal!
+
+in case more flows:
+prefect deploy --all
+prefect deploy --name "system-backup"
