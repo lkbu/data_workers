@@ -66,3 +66,16 @@ deployments:
   schedule:
     cron: "45 7 * * *"
     timezone: "Europe/Warsaw"
+
+- name: "stockwatch-dividends"
+  entrypoint: "core/workers/dividends.py:dividends_flow"
+  work_pool:
+    name: "proxmox-process-pool"
+  path: "/opt/prefect/data_workers"
+  job_variables:
+    working_dir: "/opt/prefect/data_workers"
+    env:
+      PYTHONPATH: "/opt/prefect/data_workers"
+  schedule:
+    cron: "0 8 * * *"
+    timezone: "Europe/Warsaw"
