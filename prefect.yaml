@@ -25,7 +25,7 @@ deployments:
   
   # Schedule it to run daily at 7:00 AM (07:00)
   schedule:
-    cron: "0 7 * * *"
+    cron: "0 7 * * 1-5"
     timezone: "Europe/Warsaw"
 
 - name: "fx-nbp"
@@ -38,7 +38,7 @@ deployments:
     env:
       PYTHONPATH: "/opt/prefect/data_workers"
   schedule:
-    cron: "15 7 * * *"
+    cron: "15 7 * * 1-5"
     timezone: "Europe/Warsaw"
 
 - name: "fx-ecb"
@@ -51,7 +51,7 @@ deployments:
     env:
       PYTHONPATH: "/opt/prefect/data_workers"
   schedule:
-    cron: "30 7 * * *"
+    cron: "30 7 * * 1-5"
     timezone: "Europe/Warsaw"
 
 - name: "pko-fixed-base-rate"
@@ -64,7 +64,7 @@ deployments:
     env:
       PYTHONPATH: "/opt/prefect/data_workers"
   schedule:
-    cron: "45 7 * * *"
+    cron: "45 7 * * 1-5"
     timezone: "Europe/Warsaw"
 
 - name: "stockwatch-dividends"
@@ -77,5 +77,5 @@ deployments:
     env:
       PYTHONPATH: "/opt/prefect/data_workers"
   schedule:
-    cron: "0 8 * * *"
+    cron: "0 22 * * 1-5"
     timezone: "Europe/Warsaw"

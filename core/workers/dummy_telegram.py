@@ -24,7 +24,7 @@ def test_telegram_notification(msg: str):
 
     # 2. Construct API URL and payload
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": msg}
+    payload = {"chat_id": 4441974734, "text": msg, "message_thread_id": 5}
 
     print("Sending test message...")
 
@@ -47,7 +47,7 @@ def test_telegram_notification(msg: str):
 def my_docker_flow():
     # Your logic here
     print("Sending a test notification to Telegram...")
-    test_telegram_notification("🚀 Flow started on Proxmox Docker!")
+    test_telegram_notification("🚀 Flow succcessfuly started on prefect, server is running!")
 
 
 if __name__ == "__main__":
